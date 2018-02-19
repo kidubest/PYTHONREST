@@ -2,8 +2,8 @@ MAPPING NETSTRATOS TO FOGGY
 
 This python code maps the NETSTRATOS data to FOGGY data format. 
 
-The HTTP REST library used in our code to fetch resources from the NETSTRATOS and to send the approprait JSON format to the FOGGY is requests (http://docs.python-requests.org/en/master/). To install this library use: 
-#pip install requests
+The HTTP REST library used in our code to fetch resources from the NETSTRATOS and to send the approprait JSON format to the FOGGY is requests (http://docs.python-requests.org/en/master/). 
+To install this library use: #pip install requests
 
 To do the mapping, first we create a configuration file in JSON format to allocate the switches in NETSTRATOS to a specific region in FOGGY. The configuration JSON file format looks like the following:
 
