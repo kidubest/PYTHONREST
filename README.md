@@ -10,14 +10,23 @@ To do the mapping, first we create a configuration file in JSON format to alloca
 {
 
   "regions" : [
+
              {"reg1": [
+
                        {"switch_id":"of:0000000000000001"},
+
                        {"switch_id":"of:0000000000000002"}
+
                       ]},
+
              {"reg2": [
+
                        {"switch_id":"of:0000000000000003"},
+
                        {"switch_id":"of:0000000000000004"}
+
                       ]}
+
             ] 
 
 }
@@ -30,26 +39,41 @@ Based on the resources obtained from the NETSTRATOS and the configuration file, 
 
 {
     "relationships": [
+
         {
+
             "Id": "relationship1",
+
             "endpoint_a": "reg1",
+
             "endpoint_b": "reg2",
+
             "bandwidth": 10000,
+
             "latency": "1000000",
+
             "status": "ACTIVE"
+
         },
+
         {
+
             "Id": "relationship2",
+
             "endpoint_a": "reg1",
+
             "endpoint_b": "reg2",
+
             "bandwidth": 10000,
+
             "latency": "1000000",
+
             "status": "ACTIVE"
+
         }
+
     ]
+
 }
 
 Finaly, it sends the file to the FOGGY API.
-
-
-# PYTHONREST
