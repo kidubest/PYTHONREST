@@ -5,6 +5,8 @@ import json
 import logging
 from collections import OrderedDict
 
+logging.basicConfig(level=logging.DEBUG)
+
 
 # A method to obtain the region in which the device is located from the configuration file
 # The configuration file should be JSON
@@ -27,14 +29,14 @@ def get_region(deviceId):
     for regions in configRegions['regions']:
         for key, value in regions.items():
             for lists in value:
-                for list in lists.values():
-                    if list == deviceId:
-                        association = {list:key}
+                for lst in lists.values():
+                    if lst == deviceId:
+                        association = {deviceId:key}
 
                         return association
 
 
-# A method fetches the network resources from the NETSTRATOS
+# A method to fetch the network resources from the NETSTRATOS
 def get_links():
 
     """ 
@@ -55,17 +57,17 @@ def get_links():
     return response.json()
 
 
-# A method to obtain the port speed of the device
-# Takes deviceId and switchPortId as parameters
-def get_portSpeed(deviceId, switchPortId):
+# A method to obtain the location of the device (latitude and longitude)
+# Takes deviceId as parameter
+def get_location(deviceId):
 
     """ 
-    GET the ports for the NetSTRATOS switches and compute the port speed. 
+    GET the location for the NetSTRATOS switches. 
     If the response operation is successful, it returns the portSpeed.
     """
 
     id = deviceId.replace(':','%3A')
-    url = 'http://172.28.48.106:8181/onos/v1/devices/{0}/ports'.format(id)
+    url = 'http://172.28.48.106:8181/onos/v1/devices/{0}'.format(id)
     authorization = ('onos', 'rocks')
 
     response = requests.get(url, auth = authorization)
@@ -75,17 +77,9 @@ def get_portSpeed(deviceId, switchPortId):
         logging.error(msg)
         response.raise_for_status()
 
-    ports_dict = response.json()
-    portSpeeds = []
-
-    for port in ports_dict['ports']:
-        portId = port.get('port')
-
-        if portId != switchPortId:
-            continue
-        else:
-            portSpeed = port.get('portSpeed')
-            return portSpeed
+    device_dict = response.json()
+    location = '{},{}'.format(device_dict['annotations'].get('latitude'),device_dict['annotations'].get('longitude'))
+    return location
 
 
 # A method to map the NETSTRATOS data to FOGGY format
@@ -97,8 +91,8 @@ def create_relationships():
     """
 
     data_dict = get_links()
-    relationships_list =  []
-    relationship_id = 1
+    relationshipsList =  []
+    relationshipId = 1
 
     for link in data_dict['links']:
 
@@ -111,27 +105,59 @@ def create_relationships():
             continue
 
         relationship = OrderedDict()
-        relationship["Id"] = "relationship" + str(relationship_id)
+        relationship["id"] = "relationship" + str(relationshipId)
         relationship["endpoint_a"] = srcAssociation.get(sourceDeviceId)
         relationship["endpoint_b"] = dstAssociation.get(destDeviceId)
-
-        sourcePort = link.get('src', {}).get('port')
-        destPort = link.get('dst', {}).get('port')
-        srcPortSpeed = get_portSpeed(sourceDeviceId, sourcePort)
-        dstPortSpeed = get_portSpeed(destDeviceId, destPort)
-
-        relationship["bandwidth"] = min(srcPortSpeed, dstPortSpeed)
+        relationship["bandwidth"] = link.get('annotations',{}).get('bandwidth')
         relationship["latency"] = link.get('annotations',{}).get('latency')
         relationship["status"] = link.get('state')
 
-        relationships_list.append(relationship)
-        relationship_id = relationship_id + 1
+        relationshipsList.append(relationship)
+        relationshipId = relationshipId + 1
 
-    relationships_object = {'relationships' : relationships_list}
+    relationshipsDict = {'relationships' : relationshipsList}
 
-    print(json.dumps(relationships_object, indent=4))
+    return json.dumps(relationshipsDict, indent=4)
 
-    return json.dumps(relationships_object, indent=4)
+
+# A method map NETSTRATOS switches to foggy regions
+def create_regions():
+
+    """
+    It takes the regions configuration files and the relationships data created in create_relationships()
+    to create a another json data that is coherent with foggy regions data.
+    """
+
+    configRegions = {}
+    try:
+        with open('configregions.json', 'r') as configFile:
+            configRegions = json.load(configFile)
+    except OSError as e:
+        logging.error("Can not find configuration file {}".format(e))
+        raise
+
+    relationships = json.loads(create_relationships())
+    regionList = []
+    for region in configRegions['regions']:
+
+        createRegion = OrderedDict()
+        for k, v in region.items():
+            createRegion['id'] = k
+
+            location = get_location(v[0]['switch_id'])
+            createRegion['location'] = location
+
+            relationshipList = []
+            for relationship in relationships['relationships']:
+                if k == relationship.get('endpoint_a'):
+                    relationshipList.append({'relationship_id':relationship.get('id')})
+            createRegion['relationships'] = relationshipList
+
+        regionList.append(createRegion)
+
+    regionDict = {'regions' : regionList}
+
+    return json.dumps(regionDict, indent=4)
 
 
 # A method to send the data to the foggy API 
@@ -139,20 +165,51 @@ def push_relationships():
 
     """ 
     POST the  NETSTRATOS data and to the foggy API. 
-    If the response operation is successful, a message is printed on the client screen. 
+    If the response operation is successful, a message displayed on the console 
     """
-    relationships = create_relationships()
-    url = 'http://172.28.48.106:8181/onos/v1/relationships'
-    authorization = ('onos', 'rocks')
 
-    response = requests.post(url, auth = authorization, json = relationships)
+    relationships = json.loads(create_relationships())
+    url = 'http://172.28.48.119:32768/sbrk03/foggy-inventory/1.0.0/relationships'
 
-    if response.status_code != 200:
-        msg = "call to foggy inventory failed, status code {} {}".format(response.status_code, response.content.decode("utf-8"))
-        logging.error(msg)
-        response.raise_for_status()
+    for relationship in relationships['relationships']:
 
-    logging.info('Created task. ID: {}'.format(response.status_code))
+        response = requests.post(url, data = json.dumps(relationship, indent=4), headers={'Content-Type':'application/json'})
+        if response.status_code != 200:
+            msg = "Call to foggy api failed, status code {} {}".format(response.status_code, response.content.decode("utf-8"))
+            logging.error(msg)
+            response.raise_for_status()
+
+        logging.debug('Created the Relationships data. ID: {}'.format(response.status_code))
 
 
-push_relationships()
+# A method to send region data to the foggy
+def push_regions():
+
+    """ 
+    Send the regions data created with create_region() to foggy regions. 
+    If the response operation is successful, a message displayed on the console
+    """
+
+    regions = json.loads(create_regions())
+    url = 'http://172.28.48.119:32768/sbrk03/foggy-inventory/1.0.0/regions'
+
+    for region in regions['regions']:
+
+        response = requests.post(url, data = json.dumps(region, indent=4), headers={'Content-Type':'application/json'})
+        if response.status_code != 200:
+            msg = "Call to foggy api failed, status code {} {}".format(response.status_code, response.content.decode("utf-8"))
+            logging.error(msg)
+            response.raise_for_status()
+
+        logging.debug('Created the Regions data. ID: {}'.format(response.status_code))
+
+
+def execute_tasks():
+
+    push_relationships()
+
+    push_regions()
+
+if __name__=='__main__':
+
+    execute_tasks()
